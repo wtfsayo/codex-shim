@@ -42,6 +42,7 @@ from .settings import (
     chatgpt_upstream_model,
     is_chatgpt_passthrough_slug,
     usable_byok_models,
+    xai_service_tier,
 )
 from .translate import (
     SHIM_ENCRYPTED_CONTENT_PREFIX,
@@ -264,7 +265,7 @@ class ShimServer:
             return await self._chatgpt_passthrough(request, body, response_model_override=model)
         route = self._route(body)
         if route.is_xai_oauth:
-            forwarded = _xai_responses_body(body, route.model)
+            forwarded = _xai_responses_body(body, route.model, service_tier=xai_service_tier(route.slug, route.model))
             return await self._post_xai_responses(request, route, forwarded)
         if route.is_openai_chat:
             forwarded = responses_to_chat(body, route.model)
@@ -1985,9 +1986,11 @@ def _join_url(base_url: str, endpoint: str) -> str:
     return urljoin(base + "/", "v1" + endpoint)
 
 
-def _xai_responses_body(body: dict[str, Any], upstream_model: str) -> dict[str, Any]:
+def _xai_responses_body(body: dict[str, Any], upstream_model: str, service_tier: str | None = None) -> dict[str, Any]:
     forwarded = dict(body)
     forwarded["model"] = upstream_model
+    if service_tier:
+        forwarded["service_tier"] = service_tier
     tools = _xai_responses_tools(body.get("tools"))
     if tools:
         forwarded["tools"] = tools

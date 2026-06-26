@@ -372,6 +372,60 @@ async def test_xai_oauth_responses_preserves_native_search_tools(tmp_path):
     await upstream_client.close()
 
 
+async def test_xai_oauth_fast_model_forwards_priority_service_tier(tmp_path):
+    captured = {}
+
+    async def responses(request):
+        captured["body"] = await request.json()
+        return web.json_response(
+            {
+                "id": "resp_xai",
+                "object": "response",
+                "model": captured["body"]["model"],
+                "output": [],
+            }
+        )
+
+    upstream = web.Application()
+    upstream.router.add_post("/v1/responses", responses)
+    upstream_client = TestClient(TestServer(upstream))
+    await upstream_client.start_server()
+
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        json.dumps(
+            {
+                "customModels": [
+                    {
+                        "slug": "grok-composer-2-5-fast-oauth",
+                        "model": "grok-composer-2.5-fast",
+                        "displayName": "Grok Composer 2.5 Fast",
+                        "provider": "xai-oauth",
+                        "baseUrl": str(upstream_client.make_url("/v1")),
+                        "apiKey": "secret",
+                    }
+                ]
+            }
+        )
+    )
+    shim_client = TestClient(TestServer(ShimServer(settings).app()))
+    await shim_client.start_server()
+
+    resp = await shim_client.post(
+        "/v1/responses",
+        json={"model": "grok-composer-2-5-fast-oauth", "input": "hi"},
+    )
+    payload = await resp.json()
+
+    assert resp.status == 200
+    assert payload["model"] == "grok-composer-2-5-fast-oauth"
+    assert captured["body"]["model"] == "grok-composer-2.5-fast"
+    assert captured["body"]["service_tier"] == "priority"
+
+    await shim_client.close()
+    await upstream_client.close()
+
+
 def test_xai_responses_body_converts_custom_tools_to_functions():
     body = {
         "model": "grok-shim",

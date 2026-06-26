@@ -186,6 +186,13 @@ def chatgpt_service_tier(slug: str) -> str | None:
     return CHATGPT_FAST_SERVICE_TIERS.get(slug)
 
 
+def xai_service_tier(slug: str, upstream_model: str) -> str | None:
+    value = f"{slug} {upstream_model}".lower()
+    if "grok" in value and "fast" in value:
+        return "priority"
+    return None
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
     return slug or "model"

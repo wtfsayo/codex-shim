@@ -17,6 +17,7 @@ from codex_shim.settings import (
     chatgpt_passthrough_available,
     load_chatgpt_passthrough_catalog_models,
     FALLBACK_CHATGPT_PASSTHROUGH_SLUGS,
+    xai_service_tier,
 )
 
 
@@ -336,6 +337,11 @@ def test_chatgpt_fast_passthrough_service_tier_only_applies_to_priority_models()
     assert chatgpt_service_tier("gpt-5.4-fast") == "priority"
     assert chatgpt_service_tier("gpt-5.3-codex-fast") is None
     assert chatgpt_service_tier("gpt-5.5") is None
+
+
+def test_xai_fast_oauth_model_uses_priority_service_tier():
+    assert xai_service_tier("grok-composer-2-5-fast-oauth", "grok-composer-2.5-fast") == "priority"
+    assert xai_service_tier("grok-4-3-oauth", "grok-4.3") is None
 
 
 def test_cli_rejects_chatgpt_passthrough_slug_when_auth_missing(auth_missing):
