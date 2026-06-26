@@ -16,20 +16,31 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 PROVIDER_NAME = "codex_shim"
 CHATGPT_MODEL_SLUG = "gpt-5.5"
+CHATGPT_FAST_MODEL_ALIASES = {
+    "gpt-5.5-fast": "gpt-5.5",
+    "gpt-5.4-fast": "gpt-5.4",
+    "gpt-5.3-codex-fast": "gpt-5.3-codex-spark",
+}
 FALLBACK_CHATGPT_PASSTHROUGH_SLUGS = (
     "gpt-5.5",
+    "gpt-5.5-fast",
     "gpt-5.4",
+    "gpt-5.4-fast",
     "gpt-5.4-mini",
     "gpt-5.3-codex",
+    "gpt-5.3-codex-fast",
     "gpt-5.3-codex-spark",
     "gpt-5.2",
     "codex-auto-review",
 )
 FALLBACK_CHATGPT_DISPLAY_NAMES = {
     "gpt-5.5": "GPT-5.5",
+    "gpt-5.5-fast": "GPT-5.5 Fast Mode",
     "gpt-5.4": "gpt-5.4",
+    "gpt-5.4-fast": "GPT-5.4 Fast Mode",
     "gpt-5.4-mini": "GPT-5.4-Mini",
     "gpt-5.3-codex": "gpt-5.3-codex",
+    "gpt-5.3-codex-fast": "GPT-5.3-Codex Fast Mode",
     "gpt-5.3-codex-spark": "GPT-5.3-Codex-Spark",
     "gpt-5.2": "gpt-5.2",
     "codex-auto-review": "Codex Auto Review",
@@ -115,6 +126,13 @@ def _minimal_chatgpt_passthrough_entry(slug: str, display_name: str) -> dict[str
 
 
 def load_chatgpt_passthrough_catalog_models(cache_path: Path | None = None) -> list[dict[str, Any]]:
+    fallback = [
+        _minimal_chatgpt_passthrough_entry(
+            slug,
+            FALLBACK_CHATGPT_DISPLAY_NAMES.get(slug, slug),
+        )
+        for slug in FALLBACK_CHATGPT_PASSTHROUGH_SLUGS
+    ]
     path = Path(cache_path or DEFAULT_CODEX_MODELS_CACHE).expanduser()
     if path.exists():
         try:
@@ -126,14 +144,10 @@ def load_chatgpt_passthrough_catalog_models(cache_path: Path | None = None) -> l
             if isinstance(models, list):
                 entries = [dict(model) for model in models if isinstance(model, dict) and _is_listed_gpt_model(model)]
                 if entries:
+                    seen = {str(entry.get("slug")) for entry in entries if entry.get("slug")}
+                    entries.extend(entry for entry in fallback if str(entry.get("slug")) not in seen)
                     return entries
-    return [
-        _minimal_chatgpt_passthrough_entry(
-            slug,
-            FALLBACK_CHATGPT_DISPLAY_NAMES.get(slug, slug),
-        )
-        for slug in FALLBACK_CHATGPT_PASSTHROUGH_SLUGS
-    ]
+    return fallback
 
 
 def chatgpt_passthrough_slugs(cache_path: Path | None = None) -> set[str]:
@@ -157,6 +171,8 @@ def is_chatgpt_passthrough_slug(slug: str, cache_path: Path | None = None) -> bo
 def chatgpt_upstream_model(slug: str, cache_path: Path | None = None) -> str:
     if slug.startswith("openai-gpt-"):
         return CHATGPT_MODEL_SLUG
+    if slug in CHATGPT_FAST_MODEL_ALIASES:
+        return CHATGPT_FAST_MODEL_ALIASES[slug]
     if slug in chatgpt_passthrough_slugs(cache_path):
         return slug
     return CHATGPT_MODEL_SLUG

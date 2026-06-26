@@ -1012,13 +1012,17 @@ def _rewrite_response_model(payload: Any, model: str | None) -> None:
     if not model:
         return
     if isinstance(payload, dict):
-        if payload.get("model") == CHATGPT_MODEL_SLUG:
+        if _is_chatgpt_response_model(payload.get("model")):
             payload["model"] = model
         for value in payload.values():
             _rewrite_response_model(value, model)
     elif isinstance(payload, list):
         for item in payload:
             _rewrite_response_model(item, model)
+
+
+def _is_chatgpt_response_model(value: Any) -> bool:
+    return isinstance(value, str) and is_chatgpt_passthrough_slug(value)
 
 
 class AnthropicMessagesStreamState:

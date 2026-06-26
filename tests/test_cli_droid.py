@@ -80,6 +80,10 @@ def test_install_droid_config_preserves_non_shim_and_reuses_ids(monkeypatch, tmp
     assert by_model["gpt-5.5"]["id"] == "custom:gpt-5.5-7"
     assert by_model["grok-composer-upstream"]["baseUrl"] == "http://127.0.0.1:8765/v1"
     assert by_model["grok-composer-upstream"]["generatedBy"] == cli.DROID_GENERATED_BY
+    assert by_model["gpt-5.5"]["supportedReasoningEfforts"] == ["low", "medium", "high", "xhigh"]
+    assert by_model["gpt-5.5"]["defaultReasoningEffort"] == "medium"
+    assert by_model["grok-composer-upstream"]["supportedReasoningEfforts"] == ["off", "low", "medium", "high"]
+    assert by_model["grok-composer-upstream"]["defaultReasoningEffort"] == "high"
     assert data["sessionDefaultSettings"]["model"] == by_model["grok-composer-upstream"]["id"]
     assert by_model["grok-composer-upstream"]["id"] in data["modelFavorites"]
 

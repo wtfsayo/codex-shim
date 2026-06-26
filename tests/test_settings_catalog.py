@@ -10,7 +10,13 @@ import pytest
 from codex_shim import cli
 from codex_shim.catalog import catalog_entry, write_catalog
 from codex_shim.opencode_go import opencode_go_model_row, write_opencode_go_models
-from codex_shim.settings import ModelSettings, chatgpt_passthrough_available, FALLBACK_CHATGPT_PASSTHROUGH_SLUGS
+from codex_shim.settings import (
+    ModelSettings,
+    chatgpt_upstream_model,
+    chatgpt_passthrough_available,
+    load_chatgpt_passthrough_catalog_models,
+    FALLBACK_CHATGPT_PASSTHROUGH_SLUGS,
+)
 
 
 @pytest.fixture
@@ -312,7 +318,16 @@ def test_cli_load_models_missing_custom_settings_has_actionable_error(tmp_path):
 
 def test_cli_resolves_chatgpt_passthrough_slug_when_auth_present(auth_present):
     assert cli._resolve_model_slug([], "gpt-5.5") == "gpt-5.5"
+    assert cli._resolve_model_slug([], "gpt-5.5-fast") == "gpt-5.5-fast"
+    assert cli._resolve_model_slug([], "gpt-5.4-fast") == "gpt-5.4-fast"
+    assert cli._resolve_model_slug([], "gpt-5.3-codex-fast") == "gpt-5.3-codex-fast"
     assert cli._resolve_model_slug([], "openai-gpt-5-5") == "gpt-5.5"
+
+
+def test_chatgpt_fast_passthrough_slugs_route_to_supported_upstream_models():
+    assert chatgpt_upstream_model("gpt-5.5-fast") == "gpt-5.5"
+    assert chatgpt_upstream_model("gpt-5.4-fast") == "gpt-5.4"
+    assert chatgpt_upstream_model("gpt-5.3-codex-fast") == "gpt-5.3-codex-spark"
 
 
 def test_cli_rejects_chatgpt_passthrough_slug_when_auth_missing(auth_missing):
@@ -355,6 +370,27 @@ def test_chatgpt_passthrough_available_requires_access_token(tmp_path):
     valid = tmp_path / "valid.json"
     valid.write_text(json.dumps({"tokens": {"access_token": "x"}}))
     assert chatgpt_passthrough_available(valid) is True
+
+
+def test_chatgpt_passthrough_cache_merges_missing_fast_fallback_models(tmp_path):
+    cache = tmp_path / "models_cache.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "models": [
+                    {"slug": "gpt-5.5", "display_name": "GPT-5.5", "visibility": "list"},
+                    {"slug": "gpt-5.4", "display_name": "GPT-5.4", "visibility": "list"},
+                ]
+            }
+        )
+    )
+
+    slugs = [model["slug"] for model in load_chatgpt_passthrough_catalog_models(cache)]
+
+    assert slugs[:2] == ["gpt-5.5", "gpt-5.4"]
+    assert "gpt-5.5-fast" in slugs
+    assert "gpt-5.4-fast" in slugs
+    assert "gpt-5.3-codex-fast" in slugs
 
 
 def test_write_catalog_omits_gpt55_when_auth_missing(tmp_path, auth_missing):

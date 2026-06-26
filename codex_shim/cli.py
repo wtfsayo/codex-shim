@@ -759,8 +759,30 @@ def _droid_custom_model_entry(
         "provider": "openai",
         "maxOutputTokens": max_output_tokens or 64000,
         "supportsImages": bool(supports_images),
+        "supportedReasoningEfforts": _droid_supported_reasoning_efforts(model),
+        "defaultReasoningEffort": _droid_default_reasoning_effort(model),
         "generatedBy": DROID_GENERATED_BY,
     }
+
+
+def _droid_supported_reasoning_efforts(model: str) -> list[str]:
+    lower = model.lower()
+    if lower.startswith("gpt-") or lower.startswith("codex-"):
+        return ["low", "medium", "high", "xhigh"]
+    if "grok" in lower:
+        return ["off", "low", "medium", "high"]
+    return ["low", "medium", "high"]
+
+
+def _droid_default_reasoning_effort(model: str) -> str:
+    lower = model.lower()
+    if lower in {"gpt-5.4-mini"}:
+        return "high"
+    if lower.startswith("gpt-") or lower.startswith("codex-"):
+        return "medium"
+    if "grok" in lower and "non-reasoning" in lower:
+        return "off"
+    return "high"
 
 
 def _droid_display_name(display_name: str) -> str:

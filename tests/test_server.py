@@ -108,14 +108,19 @@ def test_sanitize_chatgpt_passthrough_body_removes_nested_shim_encrypted_content
 def test_rewrite_response_model_only_rewrites_chatgpt_metadata():
     payload = {
         "model": "gpt-5.5",
-        "nested": [{"model": "gpt-5.5"}, {"model": "other"}],
+        "nested": [{"model": "gpt-5.5"}, {"model": "gpt-5.4"}, {"model": "gpt-5.3-codex-spark"}, {"model": "other"}],
     }
 
     _rewrite_response_model(payload, "custom-model")
 
     assert payload == {
         "model": "custom-model",
-        "nested": [{"model": "custom-model"}, {"model": "other"}],
+        "nested": [
+            {"model": "custom-model"},
+            {"model": "custom-model"},
+            {"model": "custom-model"},
+            {"model": "other"},
+        ],
     }
 
 
