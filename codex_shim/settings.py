@@ -188,7 +188,7 @@ class ShimModel:
 
     @property
     def is_openai_chat(self) -> bool:
-        return self.provider in {"openai", "generic-chat-completion-api"}
+        return self.provider in {"openai", "generic-chat-completion-api", "xai-oauth"}
 
 
 class ModelSettings:
@@ -234,7 +234,16 @@ class ModelSettings:
             }
             api_key_env = str(_field(row, "api_key_env", "apiKeyEnv", default="")).strip()
             api_key = str(_field(row, "api_key", "apiKey", default=""))
-            if api_key_env:
+            if provider == "xai-oauth":
+                try:
+                    from .xai_oauth import resolve_xai_oauth_runtime_credentials
+
+                    creds = resolve_xai_oauth_runtime_credentials()
+                    api_key = creds["api_key"]
+                    base_url = creds.get("base_url") or base_url
+                except Exception:
+                    api_key = ""
+            elif api_key_env:
                 api_key = os.environ.get(api_key_env, api_key).strip()
             else:
                 api_key = _resolve_api_key(api_key)
@@ -390,4 +399,11 @@ def available_model_slugs(models: list[ShimModel]) -> set[str]:
 
 
 def byok_model_has_credentials(model: ShimModel) -> bool:
+    if model.provider == "xai-oauth":
+        try:
+            from .xai_oauth import resolve_xai_oauth_runtime_credentials
+
+            return bool(resolve_xai_oauth_runtime_credentials().get("api_key", "").strip())
+        except Exception:
+            return False
     return bool(model.api_key.strip())

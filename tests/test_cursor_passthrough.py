@@ -5,6 +5,7 @@ import json
 from codex_shim.cursor_passthrough import (
     CursorStreamParser,
     build_cursor_prompt,
+    cursor_upstream_model,
     is_cursor_passthrough_slug,
     iter_cursor_agent_events,
 )
@@ -13,7 +14,17 @@ from codex_shim.cursor_passthrough import (
 def test_is_cursor_passthrough_slug():
     assert is_cursor_passthrough_slug("composer-2-5")
     assert is_cursor_passthrough_slug("composer-2.5")
+    assert is_cursor_passthrough_slug("cursor-auto")
+    assert is_cursor_passthrough_slug("cursor-default")
+    assert is_cursor_passthrough_slug("default")
     assert not is_cursor_passthrough_slug("gpt-5.5")
+
+
+def test_cursor_upstream_model():
+    assert cursor_upstream_model("composer-2-5") == "composer-2.5"
+    assert cursor_upstream_model("composer-2.5") == "composer-2.5"
+    assert cursor_upstream_model("cursor-auto") == "default"
+    assert cursor_upstream_model("default") == "default"
 
 
 def test_build_cursor_prompt_from_responses_body():

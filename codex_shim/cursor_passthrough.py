@@ -14,7 +14,19 @@ from .translate import responses_to_chat, strip_think
 CURSOR_MODEL_SLUG = "composer-2-5"
 CURSOR_UPSTREAM_MODEL = "composer-2.5"
 CURSOR_DISPLAY_NAME = "Composer 2.5"
-CURSOR_PASSTHROUGH_SLUGS = frozenset({CURSOR_MODEL_SLUG, "composer-2.5"})
+CURSOR_AUTO_MODEL_SLUG = "cursor-auto"
+CURSOR_AUTO_UPSTREAM_MODEL = "default"
+CURSOR_AUTO_DISPLAY_NAME = "Cursor Auto"
+CURSOR_MODELS = {
+    CURSOR_MODEL_SLUG: (CURSOR_DISPLAY_NAME, CURSOR_UPSTREAM_MODEL),
+    CURSOR_AUTO_MODEL_SLUG: (CURSOR_AUTO_DISPLAY_NAME, CURSOR_AUTO_UPSTREAM_MODEL),
+}
+CURSOR_ALIAS_TO_SLUG = {
+    "composer-2.5": CURSOR_MODEL_SLUG,
+    "cursor-default": CURSOR_AUTO_MODEL_SLUG,
+    "default": CURSOR_AUTO_MODEL_SLUG,
+}
+CURSOR_PASSTHROUGH_SLUGS = frozenset(set(CURSOR_MODELS) | set(CURSOR_ALIAS_TO_SLUG))
 _AUTH_PROBE_TTL_SEC = 30.0
 _auth_probe_cache: tuple[float, bool] | None = None
 
@@ -96,8 +108,13 @@ def is_cursor_passthrough_slug(slug: str) -> bool:
     return slug in CURSOR_PASSTHROUGH_SLUGS
 
 
-def cursor_upstream_model(_slug: str) -> str:
-    return CURSOR_UPSTREAM_MODEL
+def cursor_canonical_slug(slug: str) -> str:
+    return slug if slug in CURSOR_MODELS else CURSOR_ALIAS_TO_SLUG.get(slug, CURSOR_MODEL_SLUG)
+
+
+def cursor_upstream_model(slug: str) -> str:
+    canonical = cursor_canonical_slug(slug)
+    return CURSOR_MODELS.get(canonical, CURSOR_MODELS[CURSOR_MODEL_SLUG])[1]
 
 
 def cursor_workspace() -> str:
@@ -106,14 +123,28 @@ def cursor_workspace() -> str:
 
 
 def cursor_passthrough_display_names() -> dict[str, str]:
-    return {CURSOR_MODEL_SLUG: CURSOR_DISPLAY_NAME}
+    return {slug: display_name for slug, (display_name, _model) in CURSOR_MODELS.items()}
 
 
-def cursor_catalog_entry() -> dict[str, Any]:
+def cursor_catalog_entries() -> list[dict[str, Any]]:
+    return [
+        cursor_catalog_entry(CURSOR_MODEL_SLUG),
+        cursor_catalog_entry(CURSOR_AUTO_MODEL_SLUG),
+    ]
+
+
+def cursor_catalog_entry(slug: str = CURSOR_MODEL_SLUG) -> dict[str, Any]:
+    canonical = cursor_canonical_slug(slug)
+    display_name, upstream_model = CURSOR_MODELS.get(canonical, CURSOR_MODELS[CURSOR_MODEL_SLUG])
+    description = (
+        "Cursor Auto routed through your Cursor subscription (cursor-agent login)."
+        if canonical == CURSOR_AUTO_MODEL_SLUG
+        else "Cursor Composer 2.5 routed through your Cursor subscription (cursor-agent login)."
+    )
     return {
-        "slug": CURSOR_MODEL_SLUG,
-        "display_name": CURSOR_DISPLAY_NAME,
-        "description": "Cursor Composer 2.5 routed through your Cursor subscription (cursor-agent login).",
+        "slug": canonical,
+        "display_name": display_name,
+        "description": description,
         "context_window": 272_000,
         "max_context_window": 272_000,
         "auto_compact_token_limit": 217_600,
@@ -145,11 +176,12 @@ def cursor_catalog_entry() -> dict[str, Any]:
         "priority": 11000,
         "prefer_websockets": False,
         "available_in_plans": ["free", "plus", "pro", "team", "business", "enterprise"],
-        "base_instructions": "You are Codex, a coding agent powered by Composer 2.5.",
+        "base_instructions": f"You are Codex, a coding agent powered by {display_name}.",
         "model_messages": {
-            "instructions_template": "You are Codex, a coding agent powered by Composer 2.5.",
-            "instructions_variables": {"model_name": CURSOR_DISPLAY_NAME},
+            "instructions_template": f"You are Codex, a coding agent powered by {display_name}.",
+            "instructions_variables": {"model_name": display_name},
         },
+        "model": upstream_model,
     }
 
 

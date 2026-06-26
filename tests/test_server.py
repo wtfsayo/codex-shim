@@ -557,12 +557,12 @@ async def test_health_and_models_include_cursor_passthrough_when_auth_present(tm
     health = await shim_client.get("/health")
     assert health.status == 200
     body = await health.json()
-    assert body["models"] == 1
+    assert body["models"] == 2
     assert body["cursor_passthrough"] is True
 
     models = await shim_client.get("/v1/models")
     payload = await models.json()
-    assert [model["id"] for model in payload["data"]] == ["composer-2-5"]
+    assert [model["id"] for model in payload["data"]] == ["composer-2-5", "cursor-auto"]
 
     await shim_client.close()
 

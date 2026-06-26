@@ -22,8 +22,10 @@ from urllib.request import urlopen
 from . import router as router_module
 from .catalog import _toml_escape, codex_config_overrides, write_catalog, write_config
 from .cursor_passthrough import (
+    cursor_canonical_slug,
     cursor_passthrough_available,
     cursor_passthrough_display_names,
+    cursor_upstream_model,
     is_cursor_passthrough_slug,
 )
 from .settings import (
@@ -600,7 +602,7 @@ def list_models(settings_path: Path) -> int:
             rows.append((slug, display_name, slug, "chatgpt"))
     if cursor_passthrough_available():
         for slug, display_name in cursor_passthrough_display_names().items():
-            rows.append((slug, display_name, "composer-2.5", "cursor-subscription"))
+            rows.append((slug, display_name, cursor_upstream_model(slug), "cursor-subscription"))
     rows.extend((model.slug, model.display_name, model.model, model.provider) for model in usable_byok_models(models))
     for model in models:
         if model not in usable_byok_models(models):
@@ -1224,7 +1226,7 @@ def _resolve_model_slug(models, requested: str | None, router_config=None) -> st
                 "Composer passthrough requires Cursor CLI login. "
                 "Run `cursor-agent login`, then `cursor-agent status`."
             )
-        return requested if requested in cursor_passthrough_display_names() else "composer-2-5"
+        return cursor_canonical_slug(requested)
     by_slug = {model.slug: model.slug for model in models}
     by_model: dict[str, list[str]] = {}
     for model in models:

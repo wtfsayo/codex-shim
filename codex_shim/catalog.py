@@ -14,7 +14,7 @@ from .settings import (
     load_chatgpt_passthrough_catalog_models,
     usable_byok_models,
 )
-from .cursor_passthrough import cursor_catalog_entry, cursor_passthrough_available
+from .cursor_passthrough import cursor_catalog_entries, cursor_passthrough_available
 
 
 PLAN_TIERS = ["free", "plus", "pro", "team", "business", "enterprise"]
@@ -104,9 +104,9 @@ def write_catalog(models: list[ShimModel], path: Path, router_config=None) -> Pa
     if chatgpt_passthrough_available():
         entries.extend(chatgpt_passthrough_entries())
     if cursor_passthrough_available():
-        entry = cursor_catalog_entry()
-        entry["isDefault"] = not chatgpt_passthrough_available()
-        entries.append(entry)
+        for index, entry in enumerate(cursor_catalog_entries()):
+            entry["isDefault"] = index == 0 and not chatgpt_passthrough_available()
+            entries.append(entry)
     entries.extend(catalog_entry(model) for model in usable_byok_models(models))
     payload = {"models": entries}
     path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n")
@@ -178,4 +178,3 @@ def _reasoning_effort(model: ShimModel) -> str:
 
 def _toml_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
-
