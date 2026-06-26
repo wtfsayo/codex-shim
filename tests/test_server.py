@@ -41,6 +41,8 @@ def auth_missing(monkeypatch, tmp_path):
 def test_sanitize_chatgpt_passthrough_body_drops_shim_reasoning():
     body = {
         "model": "claude-local",
+        "store": True,
+        "max_output_tokens": 1024,
         "input": [
             {"type": "message", "role": "user", "content": "hi"},
             {
@@ -61,6 +63,8 @@ def test_sanitize_chatgpt_passthrough_body_drops_shim_reasoning():
     sanitized = _sanitize_chatgpt_passthrough_body(body)
 
     assert sanitized is not body
+    assert sanitized["store"] is False
+    assert "max_output_tokens" not in sanitized
     assert sanitized["input"] is not body["input"]
     assert [item["id"] for item in sanitized["input"] if item.get("type") == "reasoning"] == ["rs_openai"]
     assert sanitized["input"][1]["encrypted_content"] == "openai-verifiable-content"

@@ -969,7 +969,11 @@ _DROP_ITEM = object()
 
 def _sanitize_chatgpt_passthrough_body(body: dict[str, Any]) -> dict[str, Any]:
     sanitized = _sanitize_chatgpt_passthrough_value(body)
-    return sanitized if isinstance(sanitized, dict) else {}
+    if not isinstance(sanitized, dict):
+        return {}
+    sanitized["store"] = False
+    sanitized.pop("max_output_tokens", None)
+    return sanitized
 
 
 def _sanitize_chatgpt_passthrough_value(value: Any) -> Any:
