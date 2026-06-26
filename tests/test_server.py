@@ -16,6 +16,7 @@ from codex_shim.server import (
     _rewrite_response_model,
     _sanitize_chatgpt_passthrough_body,
     _set_active_model,
+    _xai_responses_body,
 )
 from codex_shim.settings import FALLBACK_CHATGPT_PASSTHROUGH_SLUGS
 from codex_shim.translate import SHIM_ENCRYPTED_CONTENT_PREFIX
@@ -295,6 +296,77 @@ async def test_xai_oauth_responses_preserves_native_search_tools(tmp_path):
 
     await shim_client.close()
     await upstream_client.close()
+
+
+def test_xai_responses_body_converts_custom_tools_to_functions():
+    body = {
+        "model": "grok-shim",
+        "input": "edit",
+        "tools": [
+            {
+                "type": "custom",
+                "name": "apply_patch",
+                "description": "Apply a patch.",
+                "format": {"type": "grammar", "syntax": "lark", "definition": "start: /.+/"},
+            },
+            {
+                "type": "function",
+                "name": "read_file",
+                "description": "Read a file.",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+            },
+        ],
+    }
+
+    forwarded = _xai_responses_body(body, "grok-upstream")
+
+    assert forwarded["model"] == "grok-upstream"
+    assert forwarded["tools"] == [
+        {
+            "type": "function",
+            "name": "apply_patch",
+            "description": "Apply a patch.",
+            "strict": False,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Freeform input for the original Codex custom tool.",
+                    }
+                },
+                "required": ["input"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "read_file",
+            "description": "Read a file.",
+            "strict": False,
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+        },
+    ]
+
+
+def test_xai_responses_body_swaps_client_web_search_for_native_tool():
+    body = {
+        "model": "grok-shim",
+        "input": "search",
+        "tools": [
+            {
+                "type": "function",
+                "name": "web_search",
+                "description": "Search the web.",
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            },
+            {"type": "x_search"},
+        ],
+    }
+
+    forwarded = _xai_responses_body(body, "grok-upstream")
+
+    assert forwarded["tools"] == [{"type": "x_search"}, {"type": "web_search"}]
 
 
 async def test_missing_api_key_env_has_model_specific_error(monkeypatch, tmp_path):

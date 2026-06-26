@@ -79,20 +79,45 @@ MODEL_PICKER_NEEDLE = re.compile(
 )
 MODEL_PICKER_REPLACEMENT = r"\g<lhs>!1\g<sep>"
 MODEL_PICKER_APPLIED = re.compile(
-    r"(?:let )?\w+=!1[,;][^\n]{0,300}\.forEach"
+    r"(?:function \w+\(\{authMethod:\w+,availableModels:\w+,defaultModel:\w+,"
+    r"enabledReasoningEfforts:\w+,includeUltraReasoningEffort:\w+,models:\w+,"
+    r"useHiddenModels:\w+\}\)\{let \w+=\[\],\w+=null,\w+=!1[,;]"
+    r"|(?:let )?\w+=!1[,;][^\n]{0,300}\.forEach)"
 )
 
 SIDEBAR_RECENT_THREADS_NEEDLE = re.compile(
-    r"listRecentThreads\(\{cursor:e,limit:t(?:,useStateDbOnly:\w+(?:=!\d)?)?\}\)\{return this\.params\.requestClient\.sendRequest\(`thread/list`,"
-    r"\{limit:t,cursor:e,sortKey:this\.recentConversationSortKey,modelProviders:null,archived:!1,sourceKinds:(\w+)(?:,useStateDbOnly:\w+)?\}\)\}"
-)
-SIDEBAR_RECENT_THREADS_REPLACEMENT = (
-    r"listRecentThreads({cursor:e,limit:t}){return this.params.requestClient.sendRequest(`thread/list`,"
-    r"{limit:t,cursor:e,sortKey:this.recentConversationSortKey,modelProviders:[],archived:!1,sourceKinds:\1})}"
+    r"listRecentThreads\(\{cursor:e,limit:t,useStateDbOnly:(\w+)=!\d\}\)\{let (\w+)=\{limit:t,cursor:e,"
+    r"sortKey:this\.params\.requestClient\.getCompatibleThreadSortKey\(this\.recentConversationSortKey\),"
+    r"modelProviders:null,archived:!1,sourceKinds:(\w+),useStateDbOnly:\1\};"
+    r"return this\.params\.requestClient\.sendRequest\(`thread/list`,\2\)\}"
+    r"|"
+    r"listRecentThreads\(\{cursor:e,limit:t(?:,useStateDbOnly:(\w+)(?:=!\d)?)?\}\)\{return this\.params\.requestClient\.sendRequest\(`thread/list`,"
+    r"\{limit:t,cursor:e,sortKey:this\.recentConversationSortKey,modelProviders:null,archived:!1,sourceKinds:(\w+)(?:,useStateDbOnly:\4)?\}\)\}"
 )
 SIDEBAR_RECENT_THREADS_APPLIED = re.compile(
-    r"\.recentConversationSortKey,modelProviders:\[\],archived:!1,sourceKinds:\w+"
+    r"\.recentConversationSortKey\),modelProviders:\[\],archived:!1,sourceKinds:\w+,useStateDbOnly:\w+"
+    r"|\.recentConversationSortKey,modelProviders:\[\],archived:!1,sourceKinds:\w+"
 )
+
+
+def _sidebar_recent_threads_replacement(match: re.Match[str]) -> str:
+    if match.group(1) is not None:
+        use_state_db_only, request_var, source_kinds = match.group(1), match.group(2), match.group(3)
+        return (
+            f"listRecentThreads({{cursor:e,limit:t,useStateDbOnly:{use_state_db_only}=!1}})"
+            f"{{let {request_var}={{limit:t,cursor:e,"
+            "sortKey:this.params.requestClient.getCompatibleThreadSortKey(this.recentConversationSortKey),"
+            f"modelProviders:[],archived:!1,sourceKinds:{source_kinds},useStateDbOnly:{use_state_db_only}}};"
+            f"return this.params.requestClient.sendRequest(`thread/list`,{request_var})}}"
+        )
+    source_kinds = match.group(5)
+    return (
+        "listRecentThreads({cursor:e,limit:t}){return this.params.requestClient.sendRequest(`thread/list`,"
+        f"{{limit:t,cursor:e,sortKey:this.recentConversationSortKey,modelProviders:[],archived:!1,sourceKinds:{source_kinds}}})}}"
+    )
+
+
+SIDEBAR_RECENT_THREADS_REPLACEMENT = _sidebar_recent_threads_replacement
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -915,7 +940,11 @@ def _find_js_bundle(
         candidates.extend(p for p in sorted(assets_dir.glob(pattern)) if p not in candidates)
     for path in candidates:
         text = _read_text_lossy(path)
-        if needle.search(text) or applied.search(text):
+        if needle.search(text):
+            return path
+    for path in candidates:
+        text = _read_text_lossy(path)
+        if applied.search(text):
             return path
     return None
 
@@ -923,7 +952,7 @@ def _find_js_bundle(
 def _replace_once(
     path: Path,
     needle: re.Pattern[str],
-    replacement: str,
+    replacement,
     applied: re.Pattern[str],
 ) -> bool | None:
     text = _read_text_lossy(path)

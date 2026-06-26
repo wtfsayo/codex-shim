@@ -1962,7 +1962,95 @@ def _join_url(base_url: str, endpoint: str) -> str:
 def _xai_responses_body(body: dict[str, Any], upstream_model: str) -> dict[str, Any]:
     forwarded = dict(body)
     forwarded["model"] = upstream_model
+    tools = _xai_responses_tools(body.get("tools"))
+    if tools:
+        forwarded["tools"] = tools
+    else:
+        forwarded.pop("tools", None)
     return forwarded
+
+
+_XAI_NATIVE_TOOL_TYPES = {
+    "web_search",
+    "x_search",
+    "collections_search",
+    "file_search",
+    "code_execution",
+    "code_interpreter",
+    "mcp",
+    "shell",
+}
+
+
+def _xai_responses_tools(tools: Any) -> list[dict[str, Any]]:
+    if not isinstance(tools, list):
+        return []
+    converted: list[dict[str, Any]] = []
+    has_client_web_search = False
+    for tool in tools:
+        converted_tool = _xai_responses_tool(tool)
+        if not converted_tool:
+            continue
+        if converted_tool.get("type") == "function" and converted_tool.get("name") == "web_search":
+            has_client_web_search = True
+            continue
+        converted.append(converted_tool)
+    if has_client_web_search and not any(tool.get("type") == "web_search" for tool in converted):
+        converted.append({"type": "web_search"})
+    return converted
+
+
+def _xai_responses_tool(tool: Any) -> dict[str, Any] | None:
+    if not isinstance(tool, dict):
+        return None
+    tool_type = str(tool.get("type") or "").strip()
+    if tool_type in _XAI_NATIVE_TOOL_TYPES:
+        return {"type": tool_type}
+    if tool_type == "function":
+        name = str(tool.get("name") or "").strip()
+        if not name:
+            fn = tool.get("function")
+            if isinstance(fn, dict):
+                name = str(fn.get("name") or "").strip()
+                description = fn.get("description")
+                parameters = fn.get("parameters")
+            else:
+                description = tool.get("description")
+                parameters = tool.get("parameters")
+        else:
+            description = tool.get("description")
+            parameters = tool.get("parameters")
+        if not name:
+            return None
+        return {
+            "type": "function",
+            "name": name,
+            "description": str(description or ""),
+            "strict": bool(tool.get("strict", False)),
+            "parameters": parameters if isinstance(parameters, dict) else {"type": "object", "properties": {}},
+        }
+    if tool_type == "custom":
+        name = str(tool.get("name") or "").strip()
+        if not name:
+            return None
+        return {
+            "type": "function",
+            "name": name,
+            "description": str(tool.get("description") or ""),
+            "strict": False,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Freeform input for the original Codex custom tool.",
+                    }
+                },
+                "required": ["input"],
+                "additionalProperties": False,
+            },
+        }
+    return None
 
 
 def _openai_headers(route: ShimModel) -> dict[str, str]:
