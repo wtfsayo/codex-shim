@@ -502,7 +502,7 @@ class ShimServer:
         async with ClientSession(timeout=self.timeout) as session:
             upstream = await session.post(url, json=forwarded, headers=headers)
             if upstream.status >= 400:
-                return await _error_response(upstream)
+                return await _error_response(upstream, slug=response_model_override or forwarded.get("model"))
             if not forwarded.get("stream"):
                 payload = await upstream.json(content_type=None)
                 _rewrite_response_model(payload, response_model_override)
@@ -965,6 +965,10 @@ class ShimServer:
 
 
 _DROP_ITEM = object()
+_CHATGPT_PASSTHROUGH_UNSUPPORTED_PARAMS = {
+    "max_output_tokens",
+    "safety_identifier",
+}
 
 
 def _sanitize_chatgpt_passthrough_body(body: dict[str, Any]) -> dict[str, Any]:
@@ -972,7 +976,8 @@ def _sanitize_chatgpt_passthrough_body(body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(sanitized, dict):
         return {}
     sanitized["store"] = False
-    sanitized.pop("max_output_tokens", None)
+    for key in _CHATGPT_PASSTHROUGH_UNSUPPORTED_PARAMS:
+        sanitized.pop(key, None)
     return sanitized
 
 

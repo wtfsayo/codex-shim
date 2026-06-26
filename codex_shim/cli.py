@@ -17,6 +17,7 @@ import json
 import plistlib
 import re
 import struct
+from typing import Any
 from urllib.request import urlopen
 
 from . import router as router_module
@@ -59,6 +60,7 @@ CONFIG_PATH = RUNTIME_DIR / "config.toml"
 PID_PATH = RUNTIME_DIR / "shim.pid"
 LOG_PATH = RUNTIME_DIR / "shim.log"
 CODEX_CONFIG_PATH = Path.home() / ".codex" / "config.toml"
+DROID_SETTINGS_PATH = Path.home() / ".factory" / "settings.json"
 CODEX_CONFIG_BACKUP_PATH = RUNTIME_DIR / "config.toml.before-codex-shim"
 MANAGED_BEGIN = "# >>> codex-shim managed >>>"
 MANAGED_END = "# <<< codex-shim managed <<<"
@@ -67,6 +69,7 @@ WINDOWS_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 WINDOWS_STILL_ACTIVE = 259
 PREVIOUS_TOP_LEVEL_PREFIX = "# codex-shim previous-top-level = "
 MANAGED_TOP_LEVEL_KEYS = {"model", "model_provider", "model_catalog_json"}
+DROID_GENERATED_BY = "codex-shim droid"
 APP_ASAR_BACKUP_NAME = "app.asar.before-codex-shim-model-picker-patch"
 INFO_PLIST_BACKUP_NAME = "Info.plist.before-codex-shim-model-picker-patch"
 SYSTEM_CODEX_APP = Path("/Applications/Codex.app")
@@ -151,6 +154,12 @@ def main(argv: list[str] | None = None) -> int:
     use_parser = model_sub.add_parser("use")
     use_parser.add_argument("model_slug")
 
+    droid_parser = sub.add_parser("droid", help="Install codex-shim models into Droid/Factory BYOK settings.")
+    droid_parser.add_argument("--factory-settings", type=Path, default=DROID_SETTINGS_PATH)
+    droid_parser.add_argument("--default-model", dest="model_slug")
+    droid_parser.add_argument("--no-default", action="store_true", help="Do not update Droid's session default model.")
+    droid_parser.add_argument("--no-start", action="store_true", help="Do not start the local shim daemon.")
+
     codex_parser = sub.add_parser("codex", help="Run Codex CLI with opt-in shim config overrides.")
     codex_parser.add_argument("args", nargs=argparse.REMAINDER)
 
@@ -198,6 +207,17 @@ def main(argv: list[str] | None = None) -> int:
             install_codex_config(args.settings, args.port, args.model_slug)
             print(f"Active Codex shim model: {args.model_slug}")
             return 0
+    if args.command == "droid":
+        generate(args.settings, args.port)
+        if not args.no_start:
+            ensure_started(args.settings, args.port)
+        return install_droid_config(
+            args.settings,
+            args.port,
+            args.factory_settings,
+            model_slug=args.model_slug,
+            update_default=not args.no_default,
+        )
     if args.command == "codex":
         generate(args.settings, args.port)
         ensure_started(args.settings, args.port)
@@ -614,6 +634,213 @@ def install_codex_config(settings_path: Path, port: int, model_slug: str | None 
     )
     CODEX_CONFIG_PATH.write_text(top_block + "\n" + cleaned.lstrip() + "\n" + provider_block)
     print(f"Installed shim config into {CODEX_CONFIG_PATH}.")
+
+
+def install_droid_config(
+    settings_path: Path,
+    port: int,
+    factory_settings_path: Path,
+    *,
+    model_slug: str | None = None,
+    update_default: bool = True,
+) -> int:
+    """Install local shim routes as Droid custom BYOK models."""
+    path = Path(factory_settings_path).expanduser()
+    payload = _read_droid_settings(path)
+    custom_models = payload.get("customModels")
+    if not isinstance(custom_models, list):
+        custom_models = []
+
+    entries = _droid_shim_entries(settings_path, port)
+    if not entries:
+        print(
+            "No Droid shim models available. Add BYOK models, run `codex login`, or run `cursor-agent login`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    shim_url = _droid_shim_base_url(port)
+    reused = _existing_droid_shim_entries(custom_models, shim_url)
+    retained = [row for row in custom_models if not _is_droid_shim_entry(row, shim_url)]
+    next_index = _next_droid_custom_model_index(custom_models)
+    used_ids = {str(row.get("id")) for row in retained if isinstance(row, dict) and row.get("id")}
+    installed: list[dict[str, Any]] = []
+
+    for entry in entries:
+        route = str(entry["model"])
+        previous = reused.get(route)
+        if previous and previous.get("id") and previous.get("id") not in used_ids:
+            entry["id"] = str(previous["id"])
+            entry["index"] = int(previous.get("index") or _droid_index_from_id(entry["id"]) or next_index)
+        else:
+            while True:
+                candidate = f"custom:{route}-{next_index}"
+                next_index += 1
+                if candidate not in used_ids:
+                    entry["id"] = candidate
+                    entry["index"] = next_index - 1
+                    break
+        used_ids.add(entry["id"])
+        installed.append(entry)
+
+    payload["customModels"] = retained + installed
+    if update_default:
+        default_id = _select_droid_default_model_id(payload, installed, model_slug)
+        if default_id is None:
+            print(f"Unknown Droid shim model {model_slug!r}. Run: codex-shim droid", file=sys.stderr)
+            return 1
+        session = payload.get("sessionDefaultSettings")
+        if not isinstance(session, dict):
+            session = {}
+            payload["sessionDefaultSettings"] = session
+        session["model"] = default_id
+        _append_droid_favorite(payload, default_id)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n")
+    print(f"Installed {len(installed)} Droid custom models into {path}.")
+    print(f"Shim endpoint: {shim_url}")
+    if update_default:
+        print(f"Droid default model: {payload['sessionDefaultSettings']['model']}")
+    return 0
+
+
+def _read_droid_settings(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Droid settings are not valid JSON: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"Droid settings must be a JSON object: {path}")
+    return data
+
+
+def _droid_shim_entries(settings_path: Path, port: int) -> list[dict[str, Any]]:
+    shim_url = _droid_shim_base_url(port)
+    models = _load_models(settings_path)
+    entries: list[dict[str, Any]] = []
+    router_config = _active_router(models, settings_path)
+    if router_config is not None:
+        entries.append(_droid_custom_model_entry(router_config.slug, router_config.display_name, shim_url, True))
+    if chatgpt_passthrough_available():
+        for slug, display_name in chatgpt_passthrough_display_names().items():
+            entries.append(_droid_custom_model_entry(slug, _droid_display_name(display_name), shim_url, True))
+    if cursor_passthrough_available():
+        for slug, display_name in cursor_passthrough_display_names().items():
+            entries.append(_droid_custom_model_entry(slug, _droid_display_name(display_name), shim_url, True))
+    for model in usable_byok_models(models):
+        entries.append(
+            _droid_custom_model_entry(
+                model.slug,
+                _droid_display_name(model.display_name),
+                shim_url,
+                not model.no_image_support,
+                max_output_tokens=model.max_output_tokens,
+            )
+        )
+    return entries
+
+
+def _droid_custom_model_entry(
+    model: str,
+    display_name: str,
+    base_url: str,
+    supports_images: bool,
+    *,
+    max_output_tokens: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "displayName": display_name,
+        "baseUrl": base_url,
+        "apiKey": "dummy",
+        "provider": "openai",
+        "maxOutputTokens": max_output_tokens or 64000,
+        "supportsImages": bool(supports_images),
+        "generatedBy": DROID_GENERATED_BY,
+    }
+
+
+def _droid_display_name(display_name: str) -> str:
+    if "codex shim" in display_name.lower():
+        return display_name
+    return f"{display_name} (via Codex Shim)"
+
+
+def _droid_shim_base_url(port: int) -> str:
+    return f"http://{DEFAULT_HOST}:{port}/v1"
+
+
+def _existing_droid_shim_entries(custom_models: list[Any], shim_url: str) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+    for row in custom_models:
+        if isinstance(row, dict) and _is_droid_shim_entry(row, shim_url):
+            model = str(row.get("model") or "")
+            if model:
+                entries[model] = row
+    return entries
+
+
+def _is_droid_shim_entry(row: Any, shim_url: str) -> bool:
+    if not isinstance(row, dict):
+        return False
+    base_url = str(row.get("baseUrl") or row.get("base_url") or "").rstrip("/")
+    if row.get("generatedBy") == DROID_GENERATED_BY:
+        return True
+    return (
+        base_url == shim_url
+        and str(row.get("provider") or "").lower() == "openai"
+        and str(row.get("apiKey") or row.get("api_key") or "") == "dummy"
+    )
+
+
+def _next_droid_custom_model_index(custom_models: list[Any]) -> int:
+    highest = 0
+    for row in custom_models:
+        if not isinstance(row, dict):
+            continue
+        value = row.get("index")
+        if isinstance(value, int):
+            highest = max(highest, value)
+            continue
+        if row.get("id"):
+            highest = max(highest, _droid_index_from_id(str(row["id"])) or 0)
+    return highest + 1
+
+
+def _droid_index_from_id(value: str) -> int | None:
+    match = re.search(r"-(\d+)$", value)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _select_droid_default_model_id(
+    payload: dict[str, Any], installed: list[dict[str, Any]], model_slug: str | None
+) -> str | None:
+    by_route = {str(row["model"]): str(row["id"]) for row in installed}
+    by_id = {str(row["id"]): str(row["id"]) for row in installed}
+    if model_slug:
+        return by_route.get(model_slug) or by_id.get(model_slug)
+    session = payload.get("sessionDefaultSettings")
+    current = session.get("model") if isinstance(session, dict) else None
+    if isinstance(current, str) and current in by_id:
+        return current
+    for preferred in ("grok-composer-2-5-fast-oauth", CHATGPT_MODEL_SLUG):
+        if preferred in by_route:
+            return by_route[preferred]
+    return str(installed[0]["id"]) if installed else None
+
+
+def _append_droid_favorite(payload: dict[str, Any], model_id: str) -> None:
+    favorites = payload.get("modelFavorites")
+    if not isinstance(favorites, list):
+        favorites = []
+        payload["modelFavorites"] = favorites
+    if model_id not in favorites:
+        favorites.append(model_id)
 
 
 def list_models(settings_path: Path) -> int:
@@ -1318,7 +1545,7 @@ def _healthy(port: int) -> bool:
 
 def _health(port: int) -> dict | None:
     try:
-        with urlopen(f"http://{DEFAULT_HOST}:{port}/health", timeout=0.5) as response:
+        with urlopen(f"http://{DEFAULT_HOST}:{port}/health", timeout=5) as response:
             if response.status != 200:
                 return None
             return json.loads(response.read().decode("utf-8"))

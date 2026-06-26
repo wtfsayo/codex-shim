@@ -98,6 +98,7 @@ shortcuts live in `bin/`; symlink them if you want them on `PATH` too:
 ```bash
 mkdir -p ~/.local/bin
 ln -sf "$PWD/bin/codex-app" ~/.local/bin/codex-app
+ln -sf "$PWD/bin/codex-droid" ~/.local/bin/codex-droid
 ln -sf "$PWD/bin/codex-model" ~/.local/bin/codex-model
 ```
 
@@ -114,6 +115,7 @@ python3 -m pip install --user aiohttp
 mkdir -p ~/.local/bin
 ln -sf "$PWD/bin/codex-shim" ~/.local/bin/codex-shim
 ln -sf "$PWD/bin/codex-app" ~/.local/bin/codex-app
+ln -sf "$PWD/bin/codex-droid" ~/.local/bin/codex-droid
 ln -sf "$PWD/bin/codex-model" ~/.local/bin/codex-model
 ```
 
@@ -896,12 +898,14 @@ codex-shim opencode-go refresh
                             refresh OpenCode Go models into the settings file
 codex-shim model list        list slugs currently usable in the picker
 codex-shim model use <slug>  set the Desktop default model in managed config
+codex-shim droid             install shim models into Droid/Factory BYOK settings
 codex-shim codex -- <args>   exec `codex` CLI through inline shim overrides
 codex-shim app [path]        launch Codex Desktop through managed shim config
 codex-shim patch-app         patch macOS Codex Desktop picker allowlist
 codex-shim restore-app       restore macOS app.asar from patch backup
 
 codex-app [path]             shortcut for `codex-shim app`
+codex-droid                  shortcut for `codex-shim droid`
 codex-model [list|<slug>]    shortcut for `codex-shim model …`
 ```
 

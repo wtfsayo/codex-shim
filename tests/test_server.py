@@ -43,6 +43,11 @@ def test_sanitize_chatgpt_passthrough_body_drops_shim_reasoning():
         "model": "claude-local",
         "store": True,
         "max_output_tokens": 1024,
+        "safety_identifier": "factory-user",
+        "prompt_cache_key": "cache-key",
+        "prompt_cache_retention": "24h",
+        "previous_response_id": "resp_previous",
+        "instructions": "stable instructions",
         "input": [
             {"type": "message", "role": "user", "content": "hi"},
             {
@@ -65,6 +70,11 @@ def test_sanitize_chatgpt_passthrough_body_drops_shim_reasoning():
     assert sanitized is not body
     assert sanitized["store"] is False
     assert "max_output_tokens" not in sanitized
+    assert "safety_identifier" not in sanitized
+    assert sanitized["prompt_cache_key"] == "cache-key"
+    assert sanitized["prompt_cache_retention"] == "24h"
+    assert sanitized["previous_response_id"] == "resp_previous"
+    assert sanitized["instructions"] == "stable instructions"
     assert sanitized["input"] is not body["input"]
     assert [item["id"] for item in sanitized["input"] if item.get("type") == "reasoning"] == ["rs_openai"]
     assert sanitized["input"][1]["encrypted_content"] == "openai-verifiable-content"
