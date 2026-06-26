@@ -21,6 +21,10 @@ CHATGPT_FAST_MODEL_ALIASES = {
     "gpt-5.4-fast": "gpt-5.4",
     "gpt-5.3-codex-fast": "gpt-5.3-codex-spark",
 }
+CHATGPT_FAST_SERVICE_TIERS = {
+    "gpt-5.5-fast": "priority",
+    "gpt-5.4-fast": "priority",
+}
 FALLBACK_CHATGPT_PASSTHROUGH_SLUGS = (
     "gpt-5.5",
     "gpt-5.5-fast",
@@ -176,6 +180,10 @@ def chatgpt_upstream_model(slug: str, cache_path: Path | None = None) -> str:
     if slug in chatgpt_passthrough_slugs(cache_path):
         return slug
     return CHATGPT_MODEL_SLUG
+
+
+def chatgpt_service_tier(slug: str) -> str | None:
+    return CHATGPT_FAST_SERVICE_TIERS.get(slug)
 
 
 def slugify(value: str) -> str:

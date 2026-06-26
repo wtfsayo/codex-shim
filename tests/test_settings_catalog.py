@@ -12,6 +12,7 @@ from codex_shim.catalog import catalog_entry, write_catalog
 from codex_shim.opencode_go import opencode_go_model_row, write_opencode_go_models
 from codex_shim.settings import (
     ModelSettings,
+    chatgpt_service_tier,
     chatgpt_upstream_model,
     chatgpt_passthrough_available,
     load_chatgpt_passthrough_catalog_models,
@@ -328,6 +329,13 @@ def test_chatgpt_fast_passthrough_slugs_route_to_supported_upstream_models():
     assert chatgpt_upstream_model("gpt-5.5-fast") == "gpt-5.5"
     assert chatgpt_upstream_model("gpt-5.4-fast") == "gpt-5.4"
     assert chatgpt_upstream_model("gpt-5.3-codex-fast") == "gpt-5.3-codex-spark"
+
+
+def test_chatgpt_fast_passthrough_service_tier_only_applies_to_priority_models():
+    assert chatgpt_service_tier("gpt-5.5-fast") == "priority"
+    assert chatgpt_service_tier("gpt-5.4-fast") == "priority"
+    assert chatgpt_service_tier("gpt-5.3-codex-fast") is None
+    assert chatgpt_service_tier("gpt-5.5") is None
 
 
 def test_cli_rejects_chatgpt_passthrough_slug_when_auth_missing(auth_missing):

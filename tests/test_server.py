@@ -200,6 +200,61 @@ async def test_image_generation_routes_to_chatgpt_passthrough_and_rewrites_model
     await shim_client.close()
 
 
+async def test_chatgpt_fast_alias_forwards_priority_service_tier(monkeypatch, tmp_path, auth_present):
+    captured = []
+
+    class FakeUpstream:
+        status = 200
+        content_type = "application/json"
+
+        def __init__(self, model):
+            self.model = model
+
+        async def json(self, content_type=None):
+            return {"id": "resp_fast", "model": self.model, "output": []}
+
+        def release(self):
+            pass
+
+    async def fake_post(self, url, json=None, headers=None):
+        captured.append(json)
+        return FakeUpstream(json["model"])
+
+    monkeypatch.setattr("codex_shim.server.ClientSession.post", fake_post)
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"customModels": []}))
+    shim_client = TestClient(TestServer(ShimServer(settings).app()))
+    await shim_client.start_server()
+
+    fast_resp = await shim_client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-5.5-fast",
+            "stream": False,
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+        },
+    )
+    codex_fast_resp = await shim_client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-5.3-codex-fast",
+            "stream": False,
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+        },
+    )
+
+    assert fast_resp.status == 200
+    assert codex_fast_resp.status == 200
+    assert (await fast_resp.json())["model"] == "gpt-5.5-fast"
+    assert (await codex_fast_resp.json())["model"] == "gpt-5.3-codex-fast"
+    assert captured[0]["model"] == "gpt-5.5"
+    assert captured[0]["service_tier"] == "priority"
+    assert captured[1]["model"] == "gpt-5.3-codex-spark"
+    assert "service_tier" not in captured[1]
+
+    await shim_client.close()
+
+
 async def test_responses_routes_to_openai_chat(tmp_path):
     captured = {}
 

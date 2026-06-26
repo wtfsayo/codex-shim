@@ -38,6 +38,7 @@ from .settings import (
     chatgpt_passthrough_display_names,
     chatgpt_passthrough_slugs,
     byok_model_has_credentials,
+    chatgpt_service_tier,
     chatgpt_upstream_model,
     is_chatgpt_passthrough_slug,
     usable_byok_models,
@@ -250,6 +251,7 @@ class ShimServer:
                 body,
                 response_model_override=override,
                 upstream_model=upstream,
+                service_tier=chatgpt_service_tier(model),
             )
         if is_cursor_passthrough_slug(model):
             return await self._cursor_passthrough(
@@ -279,7 +281,12 @@ class ShimServer:
         model = str(body.get("model") or "")
         if is_chatgpt_passthrough_slug(model):
             upstream = chatgpt_upstream_model(model)
-            return await self._chatgpt_compact_passthrough(request, body, upstream_model=upstream)
+            return await self._chatgpt_compact_passthrough(
+                request,
+                body,
+                upstream_model=upstream,
+                service_tier=chatgpt_service_tier(model),
+            )
         if is_cursor_passthrough_slug(model):
             compact_body = dict(body)
             compact_body["input"] = body.get("input") or []
@@ -471,6 +478,7 @@ class ShimServer:
         body: dict[str, Any],
         response_model_override: str | None = None,
         upstream_model: str | None = None,
+        service_tier: str | None = None,
     ) -> web.StreamResponse:
         """Forward a Responses request to chatgpt.com using the user's Codex auth.
 
@@ -489,6 +497,8 @@ class ShimServer:
             raise web.HTTPUnauthorized(text="auth.json has no access_token")
         forwarded = _sanitize_chatgpt_passthrough_body(body)
         forwarded["model"] = upstream_model or CHATGPT_MODEL_SLUG
+        if service_tier:
+            forwarded["service_tier"] = service_tier
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
@@ -540,6 +550,7 @@ class ShimServer:
         request: web.Request,
         body: dict[str, Any],
         upstream_model: str | None = None,
+        service_tier: str | None = None,
     ) -> web.StreamResponse:
         auth_path = DEFAULT_CODEX_AUTH.expanduser()
         try:
@@ -554,6 +565,8 @@ class ShimServer:
         forwarded = _sanitize_chatgpt_passthrough_body(body)
         original_model = str(forwarded.get("model") or "")
         forwarded["model"] = upstream_model or CHATGPT_MODEL_SLUG
+        if service_tier:
+            forwarded["service_tier"] = service_tier
         forwarded.pop("stream", None)
         headers = {
             "Authorization": f"Bearer {access_token}",
