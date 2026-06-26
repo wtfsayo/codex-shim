@@ -230,6 +230,73 @@ async def test_responses_routes_to_openai_chat(tmp_path):
     await upstream_client.close()
 
 
+async def test_xai_oauth_responses_preserves_native_search_tools(tmp_path):
+    captured = {}
+
+    async def responses(request):
+        captured["headers"] = dict(request.headers)
+        captured["body"] = await request.json()
+        return web.json_response(
+            {
+                "id": "resp_xai",
+                "object": "response",
+                "model": captured["body"]["model"],
+                "output": [
+                    {
+                        "id": "msg_0",
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    }
+                ],
+            }
+        )
+
+    upstream = web.Application()
+    upstream.router.add_post("/v1/responses", responses)
+    upstream_client = TestClient(TestServer(upstream))
+    await upstream_client.start_server()
+
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        json.dumps(
+            {
+                "customModels": [
+                    {
+                        "model": "grok-upstream",
+                        "displayName": "Grok OAuth",
+                        "provider": "xai-oauth",
+                        "baseUrl": str(upstream_client.make_url("/v1")),
+                        "apiKey": "secret",
+                    }
+                ]
+            }
+        )
+    )
+    shim_client = TestClient(TestServer(ShimServer(settings).app()))
+    await shim_client.start_server()
+
+    resp = await shim_client.post(
+        "/v1/responses",
+        json={
+            "model": "grok-upstream",
+            "input": "search",
+            "tools": [{"type": "web_search"}, {"type": "x_search"}],
+        },
+    )
+    payload = await resp.json()
+
+    assert resp.status == 200
+    assert payload["model"] == "grok-upstream"
+    assert captured["body"]["model"] == "grok-upstream"
+    assert captured["body"]["tools"] == [{"type": "web_search"}, {"type": "x_search"}]
+    assert captured["headers"]["Authorization"] == "Bearer secret"
+
+    await shim_client.close()
+    await upstream_client.close()
+
+
 async def test_missing_api_key_env_has_model_specific_error(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
     settings = tmp_path / "settings.json"

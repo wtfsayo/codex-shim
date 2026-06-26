@@ -261,6 +261,9 @@ class ShimServer:
         if self._needs_image_gen(body) or self._needs_image_followup(body):
             return await self._chatgpt_passthrough(request, body, response_model_override=model)
         route = self._route(body)
+        if route.is_xai_oauth:
+            forwarded = _xai_responses_body(body, route.model)
+            return await self._post_xai_responses(request, route, forwarded)
         if route.is_openai_chat:
             forwarded = responses_to_chat(body, route.model)
             return await self._post_openai_chat(request, route, forwarded, as_responses=True)
@@ -781,6 +784,23 @@ class ShimServer:
                 return await self._stream_openai_chat_as_anthropic(request, upstream, route)
             payload = await upstream.json(content_type=None)
         return web.json_response(chat_completion_to_anthropic_message(payload, route.slug))
+
+    async def _post_xai_responses(
+        self, request: web.Request, route: ShimModel, body: dict[str, Any]
+    ) -> web.StreamResponse:
+        url = _join_url(route.base_url, "/responses")
+        headers = _openai_headers(route)
+        _dump_debug_request(route.slug, url, body)
+        async with ClientSession(timeout=self.timeout) as session:
+            upstream = await session.post(url, json=body, headers=headers)
+            if upstream.status >= 400:
+                return await _error_response(upstream, slug=route.slug)
+            if body.get("stream"):
+                return await self._stream_raw_sse(request, upstream)
+            payload = await upstream.json(content_type=None)
+        if isinstance(payload, dict):
+            payload["model"] = route.slug
+        return web.json_response(payload)
 
     async def _post_anthropic(
         self, request: web.Request, route: ShimModel, body: dict[str, Any], as_responses: bool
@@ -1937,6 +1957,12 @@ def _join_url(base_url: str, endpoint: str) -> str:
     if endpoint == "/messages":
         return base + "/v1/messages"
     return urljoin(base + "/", "v1" + endpoint)
+
+
+def _xai_responses_body(body: dict[str, Any], upstream_model: str) -> dict[str, Any]:
+    forwarded = dict(body)
+    forwarded["model"] = upstream_model
+    return forwarded
 
 
 def _openai_headers(route: ShimModel) -> dict[str, str]:

@@ -25,6 +25,7 @@ def catalog_entry(model: ShimModel) -> dict:
     compact = max(8_000, int(context * 0.8))
     truncation = min(64_000, max(8_000, int(context * 0.32)))
     reasoning = _reasoning_effort(model)
+    supports_native_xai_tools = model.is_xai_oauth
     return {
         "slug": model.slug,
         "display_name": model.display_name,
@@ -47,9 +48,9 @@ def catalog_entry(model: ShimModel) -> dict:
         "support_verbosity": False,
         "apply_patch_tool_type": "freeform",
         "web_search_tool_type": "text_and_image",
-        "supports_search_tool": False,
+        "supports_search_tool": supports_native_xai_tools,
         "supports_parallel_tool_calls": True,
-        "experimental_supported_tools": [],
+        "experimental_supported_tools": ["x_search"] if supports_native_xai_tools else [],
         "input_modalities": ["text"] if model.no_image_support else ["text", "image"],
         "supports_image_detail_original": not model.no_image_support,
         "shell_type": "shell_command",
